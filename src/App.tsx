@@ -1,30 +1,32 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import AuthPanel from "./components/AuthPanel";
-import BattlePanel from "./components/BattlePanel";
-import EventDialog, { EventType } from "./components/EventDialog";
-import MapView from "./components/MapView";
-import SkillDraftPanel from "./components/SkillDraftPanel";
-import SkillList from "./components/SkillList";
+import BottomNav, { MainTabKey } from "./components/BottomNav";
 import UpgradePanel from "./pages/UpgradePanel";
 import { apiFetchRun, apiPickSkill, apiRunSave } from "./lib/api";
 import { equipmentSlots } from "./lib/equipment";
 import { rollSkillOptions, SkillData } from "./lib/skills";
 import { useRunStore } from "./state/runStore";
-
-type Tab = "book" | "map";
+import AuthScreen from "./views/AuthScreen";
+import AdventureView from "./views/AdventureView";
+import AdventureHomeView from "./views/AdventureHomeView";
+import InventoryView from "./views/InventoryView";
+import type { EventType } from "./components/EventDialog";
 
 const MAP_LAYERS = 12;
 const EVENT_TYPES: EventType[] = ["START", "ENEMY", "CHEST", "FOUNTAIN", "REST", "BOSS"];
 
 const App = () => {
-  const [tab, setTab] = useState<Tab>("book");
+  const [tab, setTab] = useState<MainTabKey>("adventure");
+  const [adventureStage, setAdventureStage] = useState<"home" | "route">("home");
+  const [selectedChapterId, setSelectedChapterId] = useState("chapter-1");
+  const [authOpen, setAuthOpen] = useState(false);
   const [lastEvent, setLastEvent] = useState<string | null>(null);
   const [activeEvent, setActiveEvent] = useState<EventType | null>(null);
   const [pendingBattleEvent, setPendingBattleEvent] = useState<EventType | null>(null);
-  const [battleEventType, setBattleEventType] = useState<EventType | null>(null);
   const [skillOptions, setSkillOptions] = useState<SkillData[] | null>(null);
   const [skillLoading, setSkillLoading] = useState(false);
-  const [battleTrigger, setBattleTrigger] = useState(0);
+  const [battleOpen, setBattleOpen] = useState(false);
+  const [battleEventType, setBattleEventType] = useState<EventType | null>(null);
   const [battleResult, setBattleResult] = useState<string | null>(null);
   const [eventSummary, setEventSummary] = useState<string | null>(null);
   const [chapterComplete, setChapterComplete] = useState(false);
@@ -32,6 +34,8 @@ const App = () => {
   const setRun = useRunStore((state) => state.setRun);
   const learnSkill = useRunStore((state) => state.learnSkill);
   const runId = useRunStore((state) => state.runId);
+  const userId = useRunStore((state) => state.userId);
+  const username = useRunStore((state) => state.username);
 
   useEffect(() => {
     const storedUser = typeof window !== "undefined" ? localStorage.getItem("pathofkings_user") : null;
@@ -164,14 +168,6 @@ const App = () => {
     }
   }, []);
 
-  const handleLootEquip = useCallback(() => {
-    persistRunToServer();
-  }, [persistRunToServer]);
-
-  const handleLootSell = useCallback(() => {
-    persistRunToServer();
-  }, [persistRunToServer]);
-
   const advanceMapProgress = useCallback(
     (eventType?: EventType | null) => {
       const state = useRunStore.getState();
@@ -212,10 +208,29 @@ const App = () => {
 
   const handleBattleRequest = (eventType?: EventType | null) => {
     setActiveEvent(null);
-    if (eventType) {
-      setBattleEventType(eventType);
-    }
-    setBattleTrigger((prev) => prev + 1);
+    const next = eventType ?? pendingBattleEvent ?? null;
+    if (!next) return;
+    setBattleEventType(next);
+    setBattleOpen(true);
+  };
+
+  const handleBattleResolved = useCallback(
+    async (summary: string, resolvedEventType: EventType | null, outcome: "victory" | "defeat") => {
+      setBattleOpen(false);
+      setBattleEventType(null);
+      if (outcome === "victory") {
+        await handleBattleComplete(summary, resolvedEventType);
+        return;
+      }
+      setBattleResult(summary);
+      setEventSummary(summary);
+    },
+    [handleBattleComplete]
+  );
+
+  const handleBattleClose = () => {
+    setBattleOpen(false);
+    setBattleEventType(null);
   };
 
   const handleChapterReset = useCallback(async () => {
@@ -225,99 +240,127 @@ const App = () => {
     await persistRunToServer();
   }, [persistRunToServer, setRun]);
 
-  const battleResultBadge = useMemo(() => {
-    if (!battleResult) return null;
-    return (
-      <div className="rounded-2xl bg-white/10 px-4 py-2 text-xs text-emerald-300">
-        战斗回响：{battleResult}
-      </div>
-    );
-  }, [battleResult]);
+  if (!userId) return <AuthScreen />;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-black px-4 py-6 text-white">
-      <div className="mx-auto flex max-w-4xl flex-col gap-4">
-        <AuthPanel />
-        <nav className="flex flex-col gap-2 rounded-3xl border border-white/5 bg-slate-900/60 p-3 sm:flex-row sm:items-center">
-          <div className="flex gap-3">
-            <button
-              aria-label="Book tab"
-              onClick={() => setTab("book")}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition active:scale-95 ${
-                tab === "book" ? "bg-amber-500 text-slate-900 shadow-lg" : "bg-slate-800 text-slate-200"
-              }`}
-            >
-              Book (Upgrade)
-            </button>
-            <button
-              aria-label="Map tab"
-              onClick={() => setTab("map")}
-              className={`rounded-xl px-4 py-2 text-sm font-semibold transition active:scale-95 ${
-                tab === "map" ? "bg-emerald-500 text-slate-900 shadow-lg" : "bg-slate-800 text-slate-200"
-              }`}
-            >
-              Map
-            </button>
+    <div className="min-h-screen bg-gradient-to-b from-slate-950 to-black text-white">
+      <header className="sticky top-0 z-40 border-b border-white/5 bg-slate-950/80 px-4 py-3 backdrop-blur">
+        <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-slate-400">Path of Kings</p>
+            <p className="text-sm text-slate-200">
+              {username ? `已登录：${username}` : "已登录"}
+              {lastEvent ? ` · 最近事件：${lastEvent}` : ""}
+            </p>
           </div>
-          <div className="flex flex-1 flex-col items-start gap-1 sm:flex-row sm:items-center sm:gap-3">
-            {lastEvent && (
-              <span className="rounded-lg bg-white/10 px-3 py-1 text-xs text-slate-200">
-                Last event: {lastEvent}
-              </span>
-            )}
+          <div className="flex items-center gap-2">
             {eventSummary && (
-              <span className="rounded-lg bg-white/10 px-3 py-1 text-xs text-emerald-200">
+              <span className="hidden rounded-lg bg-white/10 px-3 py-1 text-xs text-emerald-200 sm:inline-flex">
                 {eventSummary}
               </span>
             )}
-            <SkillList />
+            <button
+              aria-label="account"
+              onClick={() => setAuthOpen(true)}
+              className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 transition active:scale-95"
+            >
+              账号
+            </button>
           </div>
-        </nav>
+        </div>
+      </header>
 
-        {tab === "book" ? (
-          <UpgradePanel />
+      <main className="flex-1 overflow-hidden">
+        {tab === "inventory" ? (
+          <InventoryView />
+        ) : tab === "book" ? (
+          <div className="h-full w-full overflow-y-auto px-4 pb-6">
+            <div className="mx-auto max-w-4xl">
+              <UpgradePanel />
+            </div>
+          </div>
         ) : (
-          <div className="flex flex-col gap-4 rounded-3xl border border-white/5 bg-slate-900/60 p-4 shadow-2xl">
-            <h2 className="text-lg font-semibold text-emerald-200">Route Planning</h2>
-            <MapView onEvent={handleEvent} />
-            <p className="text-xs text-slate-400">
-              点击当前层或下一层节点；事件由服务端返回，弹窗提示。战斗/掉落/技能将在后续阶段接入。
-            </p>
-            {battleResultBadge}
-            <BattlePanel
-              battleTrigger={battleTrigger}
-              eventType={battleEventType ?? pendingBattleEvent}
-              onBattleComplete={handleBattleComplete}
-              onLootEquip={handleLootEquip}
-              onLootSell={handleLootSell}
-            />
-            {chapterComplete && (
-              <div className="rounded-2xl border border-amber-500 bg-amber-500/10 p-3 text-sm text-amber-300">
-                <p>本章节已通关！</p>
-                <button
-                  onClick={handleChapterReset}
-                  className="mt-2 inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-1 text-xs font-semibold text-slate-900 transition active:scale-95"
-                >
-                  继续下一章节
-                </button>
+          <>
+            {adventureStage === "home" ? (
+              <AdventureHomeView
+                selectedId={selectedChapterId}
+                onSelect={setSelectedChapterId}
+                onEnter={() => setAdventureStage("route")}
+              />
+            ) : (
+              <div className="h-full w-full overflow-hidden">
+                <div className="sticky top-0 z-30 border-b border-white/5 bg-slate-950/70 px-4 py-3 backdrop-blur">
+                  <div className="mx-auto flex max-w-4xl items-center justify-between gap-3">
+                    <div>
+                      <p className="text-xs text-slate-400">路线规划</p>
+                      <p className="text-sm text-slate-200">
+                        {selectedChapterId === "chapter-2"
+                          ? "Frostwood Rise"
+                          : "Greenwood Trail"}
+                      </p>
+                    </div>
+                    <button
+                      aria-label="back to chapter select"
+                      onClick={() => setAdventureStage("home")}
+                      className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 transition active:scale-95"
+                    >
+                      返回章节
+                    </button>
+                  </div>
+                </div>
+
+                <AdventureView
+                  lastEvent={lastEvent}
+                  eventSummary={eventSummary}
+                  battleResult={battleResult}
+                  activeEvent={activeEvent}
+                  pendingBattleEvent={pendingBattleEvent}
+                  battleOpen={battleOpen}
+                  battleEventType={battleEventType}
+                  chapterComplete={chapterComplete}
+                  onEvent={handleEvent}
+                  onCloseEvent={() => setActiveEvent(null)}
+                  onBattleRequest={handleBattleRequest}
+                  onBattleResolved={handleBattleResolved}
+                  onBattleClose={handleBattleClose}
+                  onChapterReset={handleChapterReset}
+                  skillOptions={skillOptions}
+                  skillLoading={skillLoading}
+                  onSkillPick={handleSkillPick}
+                  onTakeAll={handleTakeAll}
+                  onCloseSkill={() => setSkillOptions(null)}
+                />
               </div>
             )}
-          </div>
+          </>
         )}
-      </div>
-      <EventDialog
-        event={activeEvent}
-        onClose={() => setActiveEvent(null)}
-        onBattleRequest={() => handleBattleRequest(pendingBattleEvent)}
+      </main>
+
+      <BottomNav
+        value={tab}
+        onChange={(next) => {
+          setTab(next);
+          if (next === "adventure") {
+            setAdventureStage((prev) => prev);
+          }
+        }}
       />
-      {skillOptions && (
-        <SkillDraftPanel
-          options={skillOptions}
-          onPick={handleSkillPick}
-          onTakeAll={handleTakeAll}
-          onClose={() => setSkillOptions(null)}
-          busy={skillLoading}
-        />
+
+      {authOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4">
+          <div className="w-full max-w-xl">
+            <div className="mb-3 flex justify-end">
+              <button
+                aria-label="close account"
+                onClick={() => setAuthOpen(false)}
+                className="rounded-xl bg-slate-800 px-3 py-2 text-xs font-semibold text-slate-200 transition active:scale-95"
+              >
+                关闭
+              </button>
+            </div>
+            <AuthPanel />
+          </div>
+        </div>
       )}
     </div>
   );

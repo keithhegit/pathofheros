@@ -96,6 +96,19 @@
 - 后端扩展：完善 `/api/run/save`，确保 inventory/skills/skills 与 map 同步；准备 D1 schema 迁移与外部导出。
 - QA/测试与部署：跑 `npm run build` + `wrangler pages dev --d1` 全链路，核对 D1 run 数据，规划部署/CI。
 
+### UI_build 分支迭代（进行中）
+- 目标：对齐原版三入口（背包/冒险/魔法书），并把页面从“单页堆叠”改成端内路由/状态机；战斗改为“路线事件进入→结算掉落滑动→回路线”。
+- 已完成：
+  - 主导航：新增底部三入口 `背包/冒险/魔法书`（`src/components/BottomNav.tsx`）。
+  - 背包页：`InventoryView` 独立视图（`src/views/InventoryView.tsx`）。
+  - 冒险入口页：章节选择 + 掉落预览 + ENTER LEVEL（`src/views/AdventureHomeView.tsx`），进入后进入路线规划（`AdventureView`）。
+  - 账号页：未登录进入 `AuthScreen`，登录后可在右上角打开账号弹窗（`src/views/AuthScreen.tsx`）。
+  - 战斗重做：加入主角 HP/受击/失败；胜利后掉落用左右滑决策（右滑装备/左滑出售）；战斗只从事件进入且结束后回路线（`src/components/BattlePanel.tsx` + `src/components/SwipeDecisionCard.tsx`）。
+- 待完成（本轮继续）：
+  - Chest 节点做成“战斗后必掉落 → 强制开宝箱/滑动决策”的更贴原版流程（区分普通战斗与宝箱战）。
+  - 冒险首页增加“章节解锁/进度/掉落池”展示（先用占位数据，后续接入真实权重）。
+  - 战斗动画与怪物精灵接入（idle/attack），以及“受击闪烁/暴击/闪避”反馈图标。
+
 ### 部署/排查（固化经验）
 - **核心结论**：如果 `wrangler.toml` 未被 Pages 识别（构建日志提示“missing pages_build_output_dir / skipping file”），则 `[[d1_databases]]` 不会注入，Functions 里的 `env.DB` 会是 `undefined`，表现为 `/api/auth/register` 500 且 tail 里出现 `Cannot read properties of undefined (reading 'prepare')`。
 - **wrangler.toml 必需字段**：
