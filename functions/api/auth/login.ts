@@ -1,12 +1,22 @@
 import type { PagesFunction } from "@cloudflare/workers-types";
 import { verifyPassword } from "../../_utils/auth";
 
-type Env = { DB: D1Database };
+type Env = { DB?: D1Database; PBKDF2_ITERATIONS?: string };
 
 export const onRequest: PagesFunction<Env> = async (context) => {
   const { request, env } = context;
   if (request.method !== "POST") {
     return json({ error: "Method not allowed" }, 405);
+  }
+
+  if (!env.DB) {
+    return json(
+      {
+        error:
+          "D1 未绑定到 Pages Functions（env.DB 为空）。请确认 wrangler.toml 含 pages_build_output_dir 与 [[d1_databases]] 并重新部署。"
+      },
+      500
+    );
   }
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -27,7 +37,10 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   if (!row) return json({ error: "invalid credentials" }, 401);
 
-  const ok = await verifyPassword(body.password, row.salt, row.password_hash);
+  const iterations = Number.parseInt(env.PBKDF2_ITERATIONS ?? "", 10);
+  const ok = await verifyPassword(body.password, row.salt, row.password_hash, {
+    iterations: Number.isFinite(iterations) && iterations > 0 ? iterations : undefined
+  });
   if (!ok) return json({ error: "invalid credentials" }, 401);
 
   return json({ userId: row.id, username });

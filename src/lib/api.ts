@@ -99,7 +99,13 @@ export async function apiRegister(username: string, password: string) {
     headers,
     body: JSON.stringify({ username, password })
   });
-  if (!res.ok) throw new Error(`register failed: ${res.status}`);
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const message =
+      (payload && typeof payload === "object" && "error" in payload && String((payload as any).error)) ||
+      `register failed: ${res.status}`;
+    throw new Error(message);
+  }
   return res.json() as Promise<{ userId: string; username: string }>;
 }
 
@@ -109,7 +115,13 @@ export async function apiLogin(username: string, password: string) {
     headers,
     body: JSON.stringify({ username, password })
   });
-  if (!res.ok) throw new Error(`login failed: ${res.status}`);
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const message =
+      (payload && typeof payload === "object" && "error" in payload && String((payload as any).error)) ||
+      `login failed: ${res.status}`;
+    throw new Error(message);
+  }
   return res.json() as Promise<{ userId: string; username: string }>;
 }
 

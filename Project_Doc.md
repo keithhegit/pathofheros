@@ -13,8 +13,8 @@
 
 ### API Surface (MVP-first)
 - Auth:
-  - POST /api/auth/register — username + password -> create user (salt + hash).
-  - POST /api/auth/login — username + password -> verify and return userId.
+  - POST /api/auth/register — username + password -> create user（PBKDF2-HMAC-SHA256 + 随机盐 + iterations 可配置）.
+  - POST /api/auth/login — username + password -> verify and return userId（同 iterations）.
 - Progress:
   - POST /api/run — create/reset a run with seed stats/gold/inventory/map (requires userId).
   - GET /api/run?id=... — fetch run snapshot.
@@ -95,4 +95,26 @@
 - 数值与技能平衡：沉淀技能触发概率/持续、战斗掉落/暴击/回血数据，反馈到 `BattlePanel` 与日志。
 - 后端扩展：完善 `/api/run/save`，确保 inventory/skills/skills 与 map 同步；准备 D1 schema 迁移与外部导出。
 - QA/测试与部署：跑 `npm run build` + `wrangler pages dev --d1` 全链路，核对 D1 run 数据，规划部署/CI。
+
+### 部署/排查（固化经验）
+- **核心结论**：如果 `wrangler.toml` 未被 Pages 识别（构建日志提示“missing pages_build_output_dir / skipping file”），则 `[[d1_databases]]` 不会注入，Functions 里的 `env.DB` 会是 `undefined`，表现为 `/api/auth/register` 500 且 tail 里出现 `Cannot read properties of undefined (reading 'prepare')`。
+- **wrangler.toml 必需字段**：
+  - `pages_build_output_dir = "dist"`（否则 Pages 认为配置无效并跳过）
+  - `[[d1_databases]] binding = "DB"`（Functions 通过 `env.DB` 使用 D1）
+  - `[vars] PBKDF2_ITERATIONS = "150000"`（PBKDF2 迭代次数可配，建议 ≥100k）
+- **一键验证远端 D1 是否准备好**：
+  - 查看表：
+    - `wrangler d1 execute pathofkings --remote --command "SELECT name FROM sqlite_master WHERE type='table';"`
+  - 查看用户：
+    - `wrangler d1 execute pathofkings --remote --command "SELECT id, username FROM users;"`
+- **tail 生产部署日志（定位 500）**：
+  - 列出部署：
+    - `wrangler pages deployment list --project-name path-of-heroes --environment production`
+  - tail 最新部署（推荐直接不写 deploymentId）：
+    - `wrangler pages deployment tail --project-name path-of-heroes`
+  - 触发注册（curl）：
+    - `curl -X POST https://path-of-heroes.pages.dev/api/auth/register -H "Content-Type: application/json" -d '{"username":"demo123","password":"testpass"}'`
+- **常见“看起来 OK 但前端还报错”原因**：
+  - 你在主域名 `https://path-of-heroes.pages.dev/` 与某个 deployment 子域名之间来回切换测试（不同 deployment 的 Functions/绑定不一致）。
+  - 浏览器缓存旧 JS：建议 DevTools 勾选 Disable cache 后强刷（Ctrl+Shift+R）。
 
