@@ -58,11 +58,14 @@ const AuthPanel = () => {
   };
 
   const handleLogout = () => {
+    const chestSlots = useRunStore.getState().chestSlots;
     reset();
-    setMsg("已清空本地会话");
+    setRun({ chestSlots });
+    setMsg("已退出账号（宝箱计时仍会保留）");
     if (typeof window !== "undefined") {
       localStorage.removeItem("pathofkings_user");
       localStorage.removeItem("pathofkings_run");
+      // 注意：不移除 pathofkings_chests，确保离线计时继续
     }
   };
 

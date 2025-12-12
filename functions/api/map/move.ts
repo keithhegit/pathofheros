@@ -6,6 +6,7 @@ type Env = { DB: D1Database };
 const EVENTS = [
   { type: "ENEMY", weight: 0.4 },
   { type: "CHEST", weight: 0.3 },
+  { type: "ELITE", weight: 0.05 },
   { type: "FOUNTAIN", weight: 0.15 },
   { type: "REST", weight: 0.1 },
   { type: "BOSS", weight: 0.05 }
@@ -22,7 +23,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
 
   const body = (await request.json().catch(() => ({}))) as {
     runId?: string;
-    target?: { layer: number; node: number };
+    target?: { layer: number; node: number; type?: string };
   };
 
   if (!body.runId || !body.target) {
@@ -53,7 +54,7 @@ export const onRequest: PagesFunction<Env> = async (context) => {
     );
   }
 
-  const event = rollEvent(next.layer);
+  const event = resolveEvent(next.layer, body.target.type);
 
   await env.DB.prepare(
     "UPDATE runs SET map_progress = ?, updated_at = unixepoch() WHERE id = ?"
@@ -76,8 +77,12 @@ function safeParseMap(raw: string) {
   return { layer: 0, node: 0 };
 }
 
-function rollEvent(layer: number) {
+function resolveEvent(layer: number, requestedType?: string) {
   if (layer === 0) return "START";
+  const allowed = ["ENEMY", "CHEST", "FOUNTAIN", "REST", "BOSS", "ELITE"];
+  if (requestedType && allowed.includes(requestedType)) {
+    return requestedType;
+  }
   let r = Math.random();
   for (const e of EVENTS) {
     if (r < e.weight) return e.type;

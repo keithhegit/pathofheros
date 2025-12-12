@@ -1,4 +1,4 @@
-export type EventType = "START" | "ENEMY" | "CHEST" | "FOUNTAIN" | "REST" | "BOSS";
+export type EventType = "START" | "ENEMY" | "CHEST" | "FOUNTAIN" | "REST" | "BOSS" | "ELITE";
 
 type Props = {
   event: EventType | null;
@@ -12,10 +12,11 @@ const copy: Record<EventType, { title: string; desc: string }> = {
   CHEST: { title: "宝箱战斗", desc: "打赢后可掉落装备（装备对比+换装在 Phase3）。" },
   FOUNTAIN: { title: "泉水", desc: "可选择技能/增益（Phase4 的 SkillDraft 已接入）。" },
   REST: { title: "休整", desc: "恢复与补给，提升续航。" },
-  BOSS: { title: "Boss", desc: "终点战斗，胜利即可突破章节（Phase5 循环中）。" }
+  BOSS: { title: "Boss", desc: "终点战斗，胜利即可突破章节（Phase5 循环中）。" },
+  ELITE: { title: "精英遭遇", desc: "特殊遭遇：可选择逃跑或战斗（胜利将获得技能奖励）。" }
 };
 
-const canBattle = (event: EventType) => ["ENEMY", "CHEST", "BOSS"].includes(event);
+const canBattle = (event: EventType) => ["ENEMY", "CHEST", "BOSS", "ELITE"].includes(event);
 
 const EventDialog = ({ event, onClose, onBattleRequest }: Props) => {
   if (!event) return null;

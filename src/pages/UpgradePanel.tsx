@@ -31,6 +31,7 @@ const UpgradePanel = ({ className }: Props) => {
         gold: data.gold,
         upgradeCost: data.upgradeCost,
         stats: data.stats,
+        currentHp: (data.stats?.[1] ?? 100) as number,
         map: data.map
       });
     },

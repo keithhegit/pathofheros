@@ -1,5 +1,6 @@
 import BattlePanel from "../components/BattlePanel";
 import EventDialog, { EventType } from "../components/EventDialog";
+import EliteEncounterOverlay from "../components/EliteEncounterOverlay";
 import MapView from "../components/MapView";
 import SkillDraftPanel from "../components/SkillDraftPanel";
 import { SkillData } from "../lib/skills";
@@ -12,6 +13,7 @@ type Props = {
   pendingBattleEvent: EventType | null;
   battleOpen: boolean;
   battleEventType: EventType | null;
+  battleRewardMode?: "loot" | "none";
   chapterComplete: boolean;
   onEvent: (event: string) => void;
   onCloseEvent: () => void;
@@ -22,8 +24,12 @@ type Props = {
   skillOptions: SkillData[] | null;
   skillLoading: boolean;
   onSkillPick: (skill: SkillData) => void;
-  onTakeAll: () => void;
   onCloseSkill: () => void;
+  skillTitle?: string | null;
+  onEliteRun?: () => void;
+  skillCanClose?: boolean;
+  skillError?: string | null;
+  mapLayers: number;
 };
 
 const AdventureView = ({
@@ -32,6 +38,7 @@ const AdventureView = ({
   pendingBattleEvent,
   battleOpen,
   battleEventType,
+  battleRewardMode,
   chapterComplete,
   onEvent,
   onCloseEvent,
@@ -42,8 +49,12 @@ const AdventureView = ({
   skillOptions,
   skillLoading,
   onSkillPick,
-  onTakeAll,
-  onCloseSkill
+  onCloseSkill,
+  skillTitle,
+  onEliteRun,
+  skillCanClose,
+  skillError,
+  mapLayers
 }: Props) => {
   return (
     <div className="relative h-full w-full overflow-hidden">
@@ -52,7 +63,7 @@ const AdventureView = ({
           <div className="rounded-3xl border border-white/5 bg-slate-900/60 p-4 shadow-2xl">
             <h2 className="text-lg font-semibold text-emerald-200">路线规划</h2>
             <div className="mt-3">
-              <MapView onEvent={onEvent} />
+              <MapView onEvent={onEvent} layers={mapLayers} />
             </div>
             {battleResult && (
               <div className="mt-4 rounded-2xl bg-white/10 px-4 py-2 text-xs text-emerald-300">
@@ -74,17 +85,25 @@ const AdventureView = ({
         </div>
       </div>
 
-      <EventDialog
-        event={activeEvent}
-        onClose={onCloseEvent}
-        onBattleRequest={() => onBattleRequest(pendingBattleEvent)}
-      />
+      {activeEvent === "ELITE" ? (
+        <EliteEncounterOverlay
+          onRun={() => (onEliteRun ? onEliteRun() : onCloseEvent())}
+          onFight={() => onBattleRequest("ELITE")}
+        />
+      ) : (
+        <EventDialog
+          event={activeEvent}
+          onClose={onCloseEvent}
+          onBattleRequest={() => onBattleRequest(pendingBattleEvent)}
+        />
+      )}
 
       {battleOpen && battleEventType && (
         <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur">
           <div className="mx-auto flex h-full max-w-4xl flex-col px-4 py-6">
             <BattlePanel
               eventType={battleEventType}
+              rewardMode={battleRewardMode}
               onResolved={(summary, eventType, outcome) => onBattleResolved(summary, eventType, outcome)}
               onClose={onBattleClose}
             />
@@ -94,11 +113,13 @@ const AdventureView = ({
 
       {skillOptions && (
         <SkillDraftPanel
+          title={skillTitle ?? "技能选择"}
           options={skillOptions}
           onPick={onSkillPick}
-          onTakeAll={onTakeAll}
           onClose={onCloseSkill}
           busy={skillLoading}
+          canClose={skillCanClose}
+          error={skillError}
         />
       )}
     </div>

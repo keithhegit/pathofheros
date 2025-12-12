@@ -5,7 +5,7 @@ const InventoryGrid = () => {
   const inventory = useRunStore((state) => state.inventory);
 
   return (
-    <div className="grid gap-3 text-xs text-slate-200 sm:grid-cols-2">
+    <div className="grid grid-cols-4 gap-2 text-xs text-slate-200">
       {equipmentSlots.map((slot) => {
         const equip = inventory[slot];
         return (
@@ -18,10 +18,11 @@ const InventoryGrid = () => {
             </p>
             {equip ? (
               <>
-                <p className="text-sm font-semibold text-amber-200">{equip.name}</p>
-                <p className="text-[11px] text-slate-400">Rarity: {equip.rarity}</p>
-                <p className="text-[11px] text-slate-400">
-                  Power: {equip.power} · Sell: {equip.saleValue}G
+                <p className="mt-1 line-clamp-2 text-[11px] font-semibold text-amber-200">
+                  {equip.name}
+                </p>
+                <p className="mt-1 text-[10px] text-slate-400">
+                  {equip.rarity} · Lv.{equip.power}
                 </p>
               </>
             ) : (

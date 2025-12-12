@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import AuthPanel from "./components/AuthPanel";
 import BottomNav, { MainTabKey } from "./components/BottomNav";
 import UpgradePanel from "./pages/UpgradePanel";
@@ -11,9 +11,13 @@ import AdventureView from "./views/AdventureView";
 import AdventureHomeView from "./views/AdventureHomeView";
 import InventoryView from "./views/InventoryView";
 import type { EventType } from "./components/EventDialog";
+import { getChapter } from "./lib/chapters";
+import MapCompleteOverlay from "./components/MapCompleteOverlay";
+import { createTimedChest } from "./components/TimedChestSlots";
+import ChestSettlementOverlay from "./components/ChestSettlementOverlay";
+import { useRunStore as runStore } from "./state/runStore";
 
-const MAP_LAYERS = 12;
-const EVENT_TYPES: EventType[] = ["START", "ENEMY", "CHEST", "FOUNTAIN", "REST", "BOSS"];
+const EVENT_TYPES: EventType[] = ["START", "ENEMY", "CHEST", "FOUNTAIN", "REST", "BOSS", "ELITE"];
 
 const App = () => {
   const [tab, setTab] = useState<MainTabKey>("adventure");
@@ -25,17 +29,221 @@ const App = () => {
   const [pendingBattleEvent, setPendingBattleEvent] = useState<EventType | null>(null);
   const [skillOptions, setSkillOptions] = useState<SkillData[] | null>(null);
   const [skillLoading, setSkillLoading] = useState(false);
+  const [skillTitle, setSkillTitle] = useState<string | null>(null);
+  const [skillCanClose, setSkillCanClose] = useState(true);
+  const [skillError, setSkillError] = useState<string | null>(null);
   const [battleOpen, setBattleOpen] = useState(false);
   const [battleEventType, setBattleEventType] = useState<EventType | null>(null);
+  const [battleRewardMode, setBattleRewardMode] = useState<"loot" | "none">("loot");
   const [battleResult, setBattleResult] = useState<string | null>(null);
   const [eventSummary, setEventSummary] = useState<string | null>(null);
   const [chapterComplete, setChapterComplete] = useState(false);
+  const [unlockedAct, setUnlockedAct] = useState(1);
+  const [mapCompleteOpen, setMapCompleteOpen] = useState(false);
+
+  const [chestSettlementOpen, setChestSettlementOpen] = useState<{
+    title: string;
+    equipmentRarityWeights?: { Common?: number; Uncommon?: number; Rare?: number; Epic?: number };
+  } | null>(null);
+
+  type RouteFlowKind = "FOUNTAIN" | "CHEST" | "REST" | "BOSS";
+  type RouteFlowStep =
+    | { type: "SKILL_DRAFT"; title: string; forced: boolean }
+    | { type: "REST_HEAL" }
+    | { type: "BATTLE"; eventType: EventType; rewardMode: "loot" | "none" }
+    | { type: "ELITE_DECISION" }
+    | { type: "CHEST_SETTLE"; title: string }
+    | { type: "MAP_COMPLETE" };
+
+  const [routeFlow, setRouteFlow] = useState<{ kind: RouteFlowKind; idx: number; steps: RouteFlowStep[] } | null>(
+    null
+  );
 
   const setRun = useRunStore((state) => state.setRun);
   const learnSkill = useRunStore((state) => state.learnSkill);
+  const skills = useRunStore((state) => state.skills);
   const runId = useRunStore((state) => state.runId);
   const userId = useRunStore((state) => state.userId);
   const username = useRunStore((state) => state.username);
+  const map = useRunStore((state) => state.map);
+  const addTimedChest = useRunStore((state) => state.addTimedChest);
+  const setCurrentHp = useRunStore((state) => state.setCurrentHp);
+  const selectedChapter = getChapter(selectedChapterId);
+  const mapLayers = selectedChapter.levels + 1;
+  const currentDot = Math.min(selectedChapter.levels, Math.max(1, (map?.layer ?? 0) + 1));
+
+  const startRouteFlow = (kind: RouteFlowKind) => {
+    const steps: RouteFlowStep[] = [];
+    if (kind === "FOUNTAIN") {
+      steps.push({ type: "SKILL_DRAFT", title: "Fountain：继续获取技能（3选1）", forced: false });
+      steps.push({ type: "BATTLE", eventType: "ENEMY", rewardMode: "none" });
+      steps.push({ type: "CHEST_SETTLE", title: "Fountain Reward Chest" });
+    }
+    if (kind === "CHEST") {
+      steps.push({ type: "BATTLE", eventType: "ENEMY", rewardMode: "none" });
+      steps.push({ type: "ELITE_DECISION" });
+      steps.push({ type: "BATTLE", eventType: "ELITE", rewardMode: "none" });
+      steps.push({ type: "SKILL_DRAFT", title: "ELITE 胜利奖励：技能三选一", forced: true });
+      steps.push({ type: "CHEST_SETTLE", title: "Chest Reward Chest" });
+    }
+    if (kind === "REST") {
+      steps.push({ type: "REST_HEAL" });
+      steps.push({ type: "BATTLE", eventType: "ENEMY", rewardMode: "none" });
+      steps.push({ type: "CHEST_SETTLE", title: "Rest Reward Chest" });
+    }
+    if (kind === "BOSS") {
+      steps.push({ type: "BATTLE", eventType: "ENEMY", rewardMode: "none" });
+      steps.push({ type: "BATTLE", eventType: "BOSS", rewardMode: "none" });
+      steps.push({ type: "CHEST_SETTLE", title: "Boss Reward Chest" });
+      steps.push({ type: "MAP_COMPLETE" });
+    }
+    setRouteFlow({ kind, idx: 0, steps });
+  };
+
+  const advanceRouteFlow = () => {
+    setRouteFlow((prev) => {
+      if (!prev) return null;
+      const nextIdx = prev.idx + 1;
+      if (nextIdx >= prev.steps.length) return null;
+      return { ...prev, idx: nextIdx };
+    });
+  };
+
+  const endRouteFlow = () => {
+    setRouteFlow(null);
+    setActiveEvent(null);
+    setPendingBattleEvent(null);
+  };
+
+  const currentFlowStep = routeFlow ? routeFlow.steps[routeFlow.idx] : null;
+  const lastStepRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!routeFlow || !currentFlowStep) return;
+    const stepKey = `${routeFlow.kind}:${routeFlow.idx}:${currentFlowStep.type}`;
+    if (lastStepRef.current === stepKey) return;
+    lastStepRef.current = stepKey;
+
+    if (currentFlowStep.type === "SKILL_DRAFT") {
+      setSkillTitle(currentFlowStep.title);
+      setSkillCanClose(!currentFlowStep.forced);
+      setSkillError(null);
+      setSkillOptions(rollSkillOptions(3, runStore.getState().skills));
+      return;
+    }
+
+    if (currentFlowStep.type === "REST_HEAL") {
+      const maxHp = Math.max(1, runStore.getState().stats?.[1] ?? 100);
+      const baseHp = runStore.getState().currentHp > 0 ? runStore.getState().currentHp : maxHp;
+      const healed = Math.min(maxHp, Math.floor(baseHp + maxHp * 0.25));
+      setCurrentHp(healed);
+      setEventSummary(`Rest：恢复 +25% HP（${baseHp} → ${healed}）`);
+      advanceRouteFlow();
+      return;
+    }
+
+    if (currentFlowStep.type === "ELITE_DECISION") {
+      setActiveEvent("ELITE");
+      setPendingBattleEvent("ELITE");
+      return;
+    }
+
+    if (currentFlowStep.type === "BATTLE") {
+      setActiveEvent(null);
+      setBattleRewardMode(currentFlowStep.rewardMode);
+      setBattleEventType(currentFlowStep.eventType);
+      setBattleOpen(true);
+      return;
+    }
+
+    if (currentFlowStep.type === "CHEST_SETTLE") {
+      setChestSettlementOpen({ title: currentFlowStep.title });
+      return;
+    }
+
+    if (currentFlowStep.type === "MAP_COMPLETE") {
+      setMapCompleteOpen(true);
+      setUnlockedAct((prev) => Math.max(prev, selectedChapter.act + 1));
+      endRouteFlow();
+    }
+  }, [advanceRouteFlow, currentFlowStep, endRouteFlow, routeFlow, selectedChapter.act, setCurrentHp]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem("pathofkings_unlocked_act");
+    if (!raw) return;
+    const n = Number(raw);
+    if (Number.isFinite(n) && n > 0) setUnlockedAct(Math.floor(n));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    localStorage.setItem("pathofkings_unlocked_act", String(unlockedAct));
+  }, [unlockedAct]);
+
+  useEffect(() => {
+    if (!runId) return;
+    const layer = map?.layer ?? 0;
+    const dotIndex = layer; // layer 1..levels 对应 dots 的 1..levels
+    if (dotIndex <= 0) return;
+    if (!selectedChapter.chestDotIndexes.includes(dotIndex)) return;
+
+    const key = `pathofkings_awarded_chest:${runId}:${selectedChapter.id}:${dotIndex}`;
+    if (typeof window !== "undefined") {
+      if (localStorage.getItem(key)) return;
+      localStorage.setItem(key, "1");
+    }
+
+    const roll = Math.random() * 100;
+    const r =
+      roll < selectedChapter.dropRates.rare
+        ? "Rare"
+        : roll < selectedChapter.dropRates.rare + selectedChapter.dropRates.uncommon
+        ? "Uncommon"
+        : "Common";
+    addTimedChest(createTimedChest(r));
+  }, [addTimedChest, map?.layer, runId, selectedChapter]);
+
+  const routeGiftRef = useRef<{ runId: string | null; granted: boolean }>({
+    runId: null,
+    granted: false
+  });
+
+  useEffect(() => {
+    if (routeGiftRef.current.runId !== runId) {
+      routeGiftRef.current = { runId, granted: false };
+    }
+  }, [runId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = localStorage.getItem("pathofkings_chests");
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        useRunStore.getState().setChestSlots(parsed);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    if (adventureStage !== "route") return;
+    if (!runId) return;
+    if (skills.length > 0) {
+      routeGiftRef.current.granted = true;
+      return;
+    }
+    if (skillOptions) return;
+    if (routeGiftRef.current.granted) return;
+    routeGiftRef.current.granted = true;
+    setSkillTitle("Pick an ability!（首次进入路线奖励）");
+    setSkillCanClose(false);
+    setSkillError(null);
+    setSkillOptions(rollSkillOptions(3, useRunStore.getState().skills));
+  }, [adventureStage, runId, skills.length, skillOptions]);
 
   useEffect(() => {
     const storedUser = typeof window !== "undefined" ? localStorage.getItem("pathofkings_user") : null;
@@ -64,9 +272,16 @@ const App = () => {
                   gold: fresh.gold,
                   upgradeCost: fresh.upgradeCost,
                   stats: fresh.stats,
+                  currentHp:
+                    (snapshot as any)?.currentHp ??
+                    (fresh.stats?.[1] ?? 100),
                   map: fresh.map,
                   inventory: fresh.inventory || undefined,
-                  skills: fresh.skills || []
+                  skills: (fresh.skills || []).map((s) => ({
+                    ...s,
+                    level: (s as any)?.level ?? 1,
+                    maxLevel: (s as any)?.maxLevel ?? 5
+                  }))
                 });
               })
               .catch(() => {
@@ -91,12 +306,20 @@ const App = () => {
         gold: state.gold,
         upgradeCost: state.upgradeCost,
         stats: state.stats,
+        currentHp: state.currentHp,
         map: state.map,
         inventory: state.inventory,
         skills: state.skills
       }),
       (snapshot) => {
         localStorage.setItem("pathofkings_run", JSON.stringify(snapshot));
+      }
+    );
+
+    const persistChests = useRunStore.subscribe(
+      (state) => state.chestSlots,
+      (slots) => {
+        localStorage.setItem("pathofkings_chests", JSON.stringify(slots));
       }
     );
 
@@ -114,38 +337,32 @@ const App = () => {
     return () => {
       persistRun();
       persistUser();
+      persistChests();
     };
   }, []);
 
   const handleSkillPick = async (skill: SkillData) => {
     if (!runId) return;
     setSkillLoading(true);
+    setSkillError(null);
     try {
-      await apiPickSkill(runId, skill);
-      learnSkill(skill);
+      const res = await apiPickSkill(runId, skill);
+      const picked = res.skills.find((s) => s.id === skill.id) ?? skill;
+      learnSkill(picked);
+      setSkillOptions(null);
+      setSkillTitle(null);
+      setSkillCanClose(true);
+      if (routeFlow && currentFlowStep?.type === "SKILL_DRAFT") {
+        advanceRouteFlow();
+      }
     } catch (error) {
-      console.error(error);
+      setSkillError(String(error));
     } finally {
       setSkillLoading(false);
-      setSkillOptions(null);
     }
   };
 
-  const handleTakeAll = async () => {
-    if (!runId || !skillOptions) return;
-    setSkillLoading(true);
-    try {
-      for (const skill of skillOptions) {
-        await apiPickSkill(runId, skill);
-        learnSkill(skill);
-      }
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setSkillLoading(false);
-      setSkillOptions(null);
-    }
-  };
+  // 3-choice-1: 不再提供 Take All
 
   const persistRunToServer = useCallback(async () => {
     const state = useRunStore.getState();
@@ -168,19 +385,6 @@ const App = () => {
     }
   }, []);
 
-  const advanceMapProgress = useCallback(
-    (eventType?: EventType | null) => {
-      const state = useRunStore.getState();
-      const current = state.map ?? { layer: 0, node: 0 };
-      const nextLayer = Math.min(current.layer + 1, MAP_LAYERS - 1);
-      const nextNode = eventType === "BOSS" ? 0 : current.node;
-      const next = { layer: nextLayer, node: nextNode };
-      setRun({ map: next });
-      return next;
-    },
-    [setRun]
-  );
-
   const handleBattleComplete = useCallback(
     async (summary: string, eventType?: EventType | null) => {
       setBattleResult(summary);
@@ -188,29 +392,38 @@ const App = () => {
       if (eventType === "BOSS") {
         setChapterComplete(true);
       }
-      advanceMapProgress(eventType ?? battleEventType ?? pendingBattleEvent);
       await persistRunToServer();
     },
-    [advanceMapProgress, battleEventType, pendingBattleEvent, persistRunToServer]
+    [persistRunToServer]
   );
 
   const handleEvent = (event: string) => {
     setLastEvent(event);
-    if (EVENT_TYPES.includes(event as EventType)) {
-      const evt = event as EventType;
-      setActiveEvent(evt);
-      setPendingBattleEvent(evt);
+    if (!EVENT_TYPES.includes(event as EventType)) return;
+    const evt = event as EventType;
+
+    if (evt === "FOUNTAIN" || evt === "CHEST" || evt === "REST" || evt === "BOSS") {
+      setActiveEvent(null);
+      setPendingBattleEvent(null);
+      startRouteFlow(evt);
+      return;
     }
-    if (event === "FOUNTAIN") {
-      setSkillOptions(rollSkillOptions());
-    }
+
+    setActiveEvent(evt);
+    setPendingBattleEvent(evt);
   };
 
   const handleBattleRequest = (eventType?: EventType | null) => {
     setActiveEvent(null);
     const next = eventType ?? pendingBattleEvent ?? null;
     if (!next) return;
+    if (routeFlow && currentFlowStep?.type === "ELITE_DECISION" && next === "ELITE") {
+      // 进入精英战斗由路线流程统一调度，确保 rewardMode/后续步骤一致
+      advanceRouteFlow();
+      return;
+    }
     setBattleEventType(next);
+    setBattleRewardMode("loot");
     setBattleOpen(true);
   };
 
@@ -220,13 +433,30 @@ const App = () => {
       setBattleEventType(null);
       if (outcome === "victory") {
         await handleBattleComplete(summary, resolvedEventType);
+        if (routeFlow) {
+          advanceRouteFlow();
+          return;
+        }
         return;
       }
       setBattleResult(summary);
       setEventSummary(summary);
+      if (routeFlow) endRouteFlow();
     },
-    [handleBattleComplete]
+    [advanceRouteFlow, endRouteFlow, handleBattleComplete, routeFlow]
   );
+
+  const handleEliteRun = () => {
+    setActiveEvent(null);
+    setPendingBattleEvent(null);
+    if (routeFlow && currentFlowStep?.type === "ELITE_DECISION") {
+      setEventSummary("你选择撤退，避开了精英战斗。");
+      advanceRouteFlow(); // 跳过 ELITE 战斗
+      advanceRouteFlow(); // 跳过 ELITE 技能奖励
+      return;
+    }
+    setEventSummary("你选择撤退，避开了精英战斗。");
+  };
 
   const handleBattleClose = () => {
     setBattleOpen(false);
@@ -285,7 +515,11 @@ const App = () => {
               <AdventureHomeView
                 selectedId={selectedChapterId}
                 onSelect={setSelectedChapterId}
-                onEnter={() => setAdventureStage("route")}
+                onEnter={() => {
+                  setAdventureStage("route");
+                }}
+                unlockedAct={unlockedAct}
+                currentDot={currentDot}
               />
             ) : (
               <div className="h-full w-full overflow-hidden">
@@ -317,6 +551,7 @@ const App = () => {
                   pendingBattleEvent={pendingBattleEvent}
                   battleOpen={battleOpen}
                   battleEventType={battleEventType}
+                  battleRewardMode={battleRewardMode}
                   chapterComplete={chapterComplete}
                   onEvent={handleEvent}
                   onCloseEvent={() => setActiveEvent(null)}
@@ -327,8 +562,17 @@ const App = () => {
                   skillOptions={skillOptions}
                   skillLoading={skillLoading}
                   onSkillPick={handleSkillPick}
-                  onTakeAll={handleTakeAll}
-                  onCloseSkill={() => setSkillOptions(null)}
+                  onCloseSkill={() => {
+                    if (!skillCanClose) return;
+                    setSkillOptions(null);
+                    setSkillTitle(null);
+                    setSkillError(null);
+                  }}
+                  skillTitle={skillTitle}
+                  onEliteRun={handleEliteRun}
+                  skillCanClose={skillCanClose}
+                  skillError={skillError}
+                  mapLayers={mapLayers}
                 />
               </div>
             )}
@@ -361,6 +605,39 @@ const App = () => {
             <AuthPanel />
           </div>
         </div>
+      )}
+
+      {mapCompleteOpen && (
+        <MapCompleteOverlay
+          chapterTitle={`Chapter ${selectedChapter.act} · ${selectedChapter.title}`}
+          dropRates={selectedChapter.dropRates}
+          checkpoints={selectedChapter.levels}
+          chestDotIndexes={selectedChapter.chestDotIndexes}
+          onClose={() => {
+            setMapCompleteOpen(false);
+            setAdventureStage("home");
+          }}
+        />
+      )}
+
+      {chestSettlementOpen && (
+        <ChestSettlementOverlay
+          title={chestSettlementOpen.title}
+          equipmentRarityWeights={{
+            Common: Math.max(0, selectedChapter.dropRates.common / 100),
+            Uncommon: Math.max(0, selectedChapter.dropRates.uncommon / 100),
+            Rare: Math.max(0, selectedChapter.dropRates.rare / 100),
+            Epic: 0
+          }}
+          onDone={(summary) => {
+            setChestSettlementOpen(null);
+            setEventSummary(summary);
+            if (routeFlow) {
+              advanceRouteFlow();
+              return;
+            }
+          }}
+        />
       )}
     </div>
   );

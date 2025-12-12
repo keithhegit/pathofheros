@@ -7,6 +7,8 @@ type SkillPayload = {
   desc: string;
   effect: string;
   type: string;
+  level?: number;
+  maxLevel?: number;
 };
 
 type Env = { DB: D1Database };
@@ -32,11 +34,19 @@ export const onRequest: PagesFunction<Env> = async (context) => {
   }
 
   const existing = JSON.parse(run.skills || "[]") as SkillPayload[];
-  if (existing.find((s) => s.id === body.skill!.id)) {
-    return response({ skills: existing });
-  }
+  const maxLevel = 5;
+  const incomingLevel = Math.max(1, Math.min(maxLevel, Math.floor(body.skill.level ?? 1)));
 
-  const updated = [...existing, body.skill];
+  const found = existing.find((s) => s.id === body.skill!.id);
+  const updated = found
+    ? existing.map((s) => {
+        if (s.id !== body.skill!.id) return s;
+        const currentLevel = Math.max(1, Math.min(maxLevel, Math.floor(s.level ?? 1)));
+        const nextLevel = Math.min(maxLevel, Math.max(incomingLevel, currentLevel + 1));
+        return { ...body.skill!, level: nextLevel, maxLevel };
+      })
+    : [...existing, { ...body.skill, level: incomingLevel, maxLevel }];
+
   await env.DB.prepare(
     "UPDATE runs SET skills = ?, updated_at = unixepoch() WHERE id = ?"
   )

@@ -85,7 +85,7 @@ export async function apiUpgradeApply(
 
 export async function apiMapMove(
   runId: string,
-  target: { layer: number; node: number }
+  target: { layer: number; node: number; type?: string }
 ) {
   const res = await fetch("/api/map/move", {
     method: "POST",
@@ -95,7 +95,7 @@ export async function apiMapMove(
   if (!res.ok) throw new Error(`map move failed: ${res.status}`);
   return res.json() as Promise<{
     map: { layer: number; node: number };
-    event: "ENEMY" | "CHEST" | "FOUNTAIN" | "REST" | "BOSS" | "START";
+    event: "ENEMY" | "CHEST" | "FOUNTAIN" | "REST" | "BOSS" | "START" | "ELITE";
   }>;
 }
 

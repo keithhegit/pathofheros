@@ -1,5 +1,6 @@
 import InventoryGrid from "../components/InventoryGrid";
 import SkillList from "../components/SkillList";
+import TimedChestSlots from "../components/TimedChestSlots";
 import { useRunStore } from "../state/runStore";
 
 const InventoryView = () => {
@@ -29,6 +30,10 @@ const InventoryView = () => {
           <div className="mt-2">
             <SkillList />
           </div>
+        </div>
+
+        <div className="rounded-3xl border border-white/5 bg-slate-900/60 p-4">
+          <TimedChestSlots />
         </div>
 
         <div className="rounded-3xl border border-white/5 bg-slate-900/60 p-4">

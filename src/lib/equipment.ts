@@ -2,6 +2,7 @@ import { statName } from "./stat";
 
 export type SlotType = "Weapon" | "Armor" | "Helmet" | "Boots" | "Accessory" | "Ring" | "Offhand" | "Special";
 export type Rarity = "Common" | "Uncommon" | "Rare" | "Epic";
+export type RarityWeights = Partial<Record<Rarity, number>>;
 
 export type EquipmentStat = {
   type: number;
@@ -65,9 +66,12 @@ const rarityMultiplier: Record<Rarity, number> = {
   Epic: 2.4
 };
 
-export const generateEquipment = (slot?: SlotType): EquipmentData => {
+export const generateEquipment = (
+  slot?: SlotType,
+  options?: { rarityWeights?: RarityWeights; forceRarity?: Rarity }
+): EquipmentData => {
   const pickSlot = slot || equipmentSlots[Math.floor(Math.random() * equipmentSlots.length)];
-  const rarity = rollRarity();
+  const rarity = options?.forceRarity ?? rollRarity(options?.rarityWeights);
   const namePool = slotNames[pickSlot];
   const name = `${namePool[Math.floor(Math.random() * namePool.length)]} (${rarity})`;
   const baseValue = 8 + Math.random() * 6;
@@ -102,16 +106,27 @@ export const generateEquipment = (slot?: SlotType): EquipmentData => {
   };
 };
 
-export const rollRarity = (): Rarity => {
-  const r = Math.random();
-  let accumulator = 0;
-  for (const [key, weight] of Object.entries(rarityWeights)) {
-    accumulator += weight;
-    if (r < accumulator) {
-      return key as Rarity;
-    }
+export const rollRarityWithWeights = (weights?: RarityWeights): Rarity => {
+  const merged: Record<Rarity, number> = {
+    Common: weights?.Common ?? rarityWeights.Common,
+    Uncommon: weights?.Uncommon ?? rarityWeights.Uncommon,
+    Rare: weights?.Rare ?? rarityWeights.Rare,
+    Epic: weights?.Epic ?? rarityWeights.Epic
+  };
+  const total = Object.values(merged).reduce((s, v) => s + Math.max(0, v), 0);
+  if (total <= 0) return "Common";
+  let r = Math.random() * total;
+  for (const [key, weight] of Object.entries(merged)) {
+    const w = Math.max(0, weight);
+    if (r < w) return key as Rarity;
+    r -= w;
   }
   return "Common";
+};
+
+export const rollRarity = (weights?: RarityWeights): Rarity => {
+  if (weights) return rollRarityWithWeights(weights);
+  return rollRarityWithWeights();
 };
 
 export const formatStatLine = (stat: EquipmentStat, prefix?: string) => {

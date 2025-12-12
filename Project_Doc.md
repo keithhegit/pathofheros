@@ -104,10 +104,30 @@
   - 冒险入口页：章节选择 + 掉落预览 + ENTER LEVEL（`src/views/AdventureHomeView.tsx`），进入后进入路线规划（`AdventureView`）。
   - 账号页：未登录进入 `AuthScreen`，登录后可在右上角打开账号弹窗（`src/views/AuthScreen.tsx`）。
   - 战斗重做：加入主角 HP/受击/失败；胜利后掉落用左右滑决策（右滑装备/左滑出售）；战斗只从事件进入且结束后回路线（`src/components/BattlePanel.tsx` + `src/components/SwipeDecisionCard.tsx`）。
+  - 宝箱结算流程：CHEST 战斗胜利后先展示 `CHEST FOUND!`（金币奖励 + 新装备预览）→ 点击 CONTINUE 才进入装备滑动决策（`src/components/ChestFoundOverlay.tsx` + `BattlePanel` 分阶段）。
+  - 路线规划强制二选一：地图生成每层固定 2 节点（`src/lib/map.ts`），Map UI 仅展示“下一步（二选一）”两个节点且只允许选择下一层（`src/components/MapView.tsx`）。
+  - 精英遭遇（ELITE）：新增精英事件，支持“左滑逃跑 / 右滑战斗”，且精英胜利奖励一次技能三选一（`src/components/EliteEncounterOverlay.tsx` + `src/views/AdventureView.tsx` + `src/App.tsx`）。
+  - 技能三选一与 5 级成长：技能池升级为 Lv1~Lv5，重复获得同技能会升级（最高 5 级）；技能选择改为严格 3 选 1（移除 TakeAll），首进路线与精英胜利为“必须选择 1 个”（`src/lib/skills.ts`、`functions/api/skill/pick.ts`、`src/components/SkillDraftPanel.tsx`、`src/state/runStore.ts`）。
+  - 战斗 UI 三段式：上方怪物战斗（含怪物占位图 + 左右手攻击动画）、中间技能栏、下方装备栏（`src/components/BattlePanel.tsx`）。
+  - 首关难度调优：整体下调前期敌人 HP/攻击并引入技能数值影响战斗（雷霆/吸血/护甲/攻速/额外伤害/再生）提高首图可通关率（`src/components/BattlePanel.tsx`）。
+  - 路线规划“四格子流程”状态机（按你定义的 4 条链式流程落地到端内）：
+    - **Fountain**：初始化技能（首次进路线）→ Fountain 再拿 1 次技能（3选1）→ 普通怪战斗（无掉落）→ 宝箱结算页。
+    - **Chest**：初始化技能（首次进路线）→ 普通怪战斗（无掉落）→ 精英遭遇（逃跑/战斗二选一）→（若战斗胜利）奖励技能 3选1 → 宝箱结算页。
+    - **Rest**：直接恢复 +25% HP（可离线继续）→ 普通怪战斗（无掉落）→ 宝箱结算页。
+    - **Boss**：初始化技能（首次进路线）→ 普通怪战斗（无掉落）→ Boss 战斗（无掉落）→ 宝箱结算页 → Map complete → 回到章节。
+    - **关键实现**：`src/App.tsx`（`routeFlow` 状态机 + 步骤调度）、`src/components/BattlePanel.tsx`（支持 `rewardMode="none"`）、`src/components/EliteEncounterOverlay.tsx`、`src/components/ChestSettlementOverlay.tsx`。
+  - Act1-4 章节参考 UI（图1-4 结构）：章节入口页展示 **关卡点/宝箱位/当前位置箭头/掉落概率**，并支持 Act4 锁定（需先通关前一章）：
+    - 配置：`src/lib/chapters.ts`
+    - UI：`src/views/AdventureHomeView.tsx`、通关弹层 `src/components/MapCompleteOverlay.tsx`
+  - 背包“宝箱位”系统（图：Gear 页面上方 3 格）：Common/Uncommon/Rare 计时解锁（5/10/23 分钟），离线继续倒计时；到点可点击打开并复用战斗宝箱结算流程：
+    - 状态：`src/state/runStore.ts`（`chestSlots`）+ `localStorage(pathofkings_chests)`
+    - UI：`src/components/TimedChestSlots.tsx`（背包页集成于 `src/views/InventoryView.tsx`）
+    - 开箱：`src/components/ChestSettlementOverlay.tsx`（装备稀有度权重可配）
 - 待完成（本轮继续）：
-  - Chest 节点做成“战斗后必掉落 → 强制开宝箱/滑动决策”的更贴原版流程（区分普通战斗与宝箱战）。
+  - Book（魔法书）UI 贴图优化：属性面板排版、升级提示、整体风格更“书页化”（`src/pages/UpgradePanel.tsx`）。
   - 冒险首页增加“章节解锁/进度/掉落池”展示（先用占位数据，后续接入真实权重）。
-  - 战斗动画与怪物精灵接入（idle/attack），以及“受击闪烁/暴击/闪避”反馈图标。
+  - Map（路线规划）贴图优化：节点视觉（图标/材质）、路线背景与章节主题化（当前先以功能/交互为主）。
+  - 战斗动画与怪物精灵接入（idle/attack），以及“受击闪烁/暴击/闪避”反馈图标（当前先用占位）。
 
 ### 部署/排查（固化经验）
 - **核心结论**：如果 `wrangler.toml` 未被 Pages 识别（构建日志提示“missing pages_build_output_dir / skipping file”），则 `[[d1_databases]]` 不会注入，Functions 里的 `env.DB` 会是 `undefined`，表现为 `/api/auth/register` 500 且 tail 里出现 `Cannot read properties of undefined (reading 'prepare')`。
