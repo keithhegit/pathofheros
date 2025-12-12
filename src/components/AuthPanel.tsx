@@ -3,7 +3,7 @@ import { apiLogin, apiRegister } from "../lib/api";
 import { useRunStore } from "../state/runStore";
 
 const AuthPanel = () => {
-  const { userId, username, setRun, reset } = useRunStore();
+  const { userId, username, setRun, reset, resetRunProgress } = useRunStore();
   const [form, setForm] = useState({ username: "", password: "" });
   const [loading, setLoading] = useState<"login" | "register" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +20,7 @@ const AuthPanel = () => {
     try {
       const res = await apiRegister(form.username, form.password);
       setRun({ userId: res.userId, username: res.username });
+      resetRunProgress();
       if (typeof window !== "undefined") {
         localStorage.setItem(
           "pathofkings_user",
@@ -40,7 +41,8 @@ const AuthPanel = () => {
     setMsg(null);
     try {
       const res = await apiLogin(form.username, form.password);
-      setRun({ userId: res.userId, username: res.username, runId: null });
+      setRun({ userId: res.userId, username: res.username });
+      resetRunProgress();
       if (typeof window !== "undefined") {
         localStorage.setItem(
           "pathofkings_user",

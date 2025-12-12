@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation } from "@tanstack/react-query";
 import SwipeCard from "../components/SwipeCard";
 import {
@@ -19,6 +19,7 @@ const UpgradePanel = ({ className }: Props) => {
   const { runId, gold, upgradeCost, stats, userId, username, setRun } = useRunStore();
   const [options, setOptions] = useState<{ A: UpgradeOption; B: UpgradeOption } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const autoCreateRef = useRef(false);
 
   const createRun = useMutation({
     mutationFn: () => apiCreateRun(userId || undefined),
@@ -37,7 +38,13 @@ const UpgradePanel = ({ className }: Props) => {
   });
 
   useEffect(() => {
-    if (!runId && userId && !createRun.isLoading && !createRun.isSuccess) {
+    autoCreateRef.current = false;
+  }, [userId]);
+
+  useEffect(() => {
+    if (autoCreateRef.current) return;
+    if (!runId && userId) {
+      autoCreateRef.current = true;
       createRun.mutate();
     }
   }, [runId, userId, createRun]);
@@ -85,6 +92,19 @@ const UpgradePanel = ({ className }: Props) => {
             {userId ? `用户：${username ?? userId}` : "请先登录/注册"}
           </span>
         </div>
+        {!runId && userId ? (
+          <button
+            aria-label="Create run"
+            onClick={() => {
+              setError(null);
+              createRun.mutate();
+            }}
+            className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-900 shadow-lg transition active:scale-95 disabled:opacity-50"
+            disabled={createRun.isLoading}
+          >
+            {createRun.isLoading ? "创建中..." : "创建 Run"}
+          </button>
+        ) : (
         <button
           aria-label="Upgrade"
           onClick={handleUpgradeClick}
@@ -93,6 +113,7 @@ const UpgradePanel = ({ className }: Props) => {
         >
           {upgrade.isLoading ? "Rolling..." : `UPGRADE (${upgradeCost || 0})`}
         </button>
+        )}
       </header>
 
       <section className="w-full max-w-md rounded-2xl border border-white/5 bg-white/5 p-4 backdrop-blur">

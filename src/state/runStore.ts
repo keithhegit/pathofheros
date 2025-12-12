@@ -47,6 +47,7 @@ type RunSnapshot = {
 type Actions = {
   setRun: (payload: Partial<RunSnapshot>) => void;
   reset: () => void;
+  resetRunProgress: () => void;
   equipItem: (item: EquipmentData) => void;
   sellItem: (item: EquipmentData) => void;
   addGold: (amount: number) => void;
@@ -86,6 +87,19 @@ export const useRunStore = create<RunSnapshot & Actions>((set) => ({
       inventory: createEmptyInventory(),
       skills: []
     }),
+  resetRunProgress: () =>
+    set((state) => ({
+      runId: null,
+      playerId: null,
+      gold: 0,
+      upgradeCost: 0,
+      stats: Array(10).fill(0),
+      map: null,
+      inventory: createEmptyInventory(),
+      skills: [],
+      userId: state.userId,
+      username: state.username
+    })),
   equipItem: (item) =>
     set((state) => {
       const existing = state.inventory[item.slot];

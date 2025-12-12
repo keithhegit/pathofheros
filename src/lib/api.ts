@@ -11,7 +11,13 @@ export async function apiCreateRun(playerId?: string) {
     headers,
     body: JSON.stringify({ playerId })
   });
-  if (!res.ok) throw new Error(`create run failed: ${res.status}`);
+  if (!res.ok) {
+    const payload = await res.json().catch(() => null);
+    const message =
+      (payload && typeof payload === "object" && "error" in payload && String((payload as any).error)) ||
+      `create run failed: ${res.status}`;
+    throw new Error(message);
+  }
   return res.json() as Promise<{
     id: string;
     playerId: string;
