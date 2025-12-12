@@ -2,11 +2,13 @@ type HashOptions = {
   iterations?: number;
 };
 
-const DEFAULT_ITERATIONS = 150_000;
+const MAX_ITERATIONS = 100_000;
+const DEFAULT_ITERATIONS = 100_000;
 const DERIVED_KEY_BITS = 256;
 
 export async function hashPassword(password: string, saltHex: string, options: HashOptions = {}) {
-  const iterations = options.iterations ?? DEFAULT_ITERATIONS;
+  const requestedIterations = options.iterations ?? DEFAULT_ITERATIONS;
+  const iterations = Math.min(requestedIterations, MAX_ITERATIONS);
   const enc = new TextEncoder();
   const saltBytes = hexToBytes(saltHex);
   const keyMaterial = await crypto.subtle.importKey(

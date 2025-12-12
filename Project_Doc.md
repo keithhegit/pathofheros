@@ -101,7 +101,7 @@
 - **wrangler.toml 必需字段**：
   - `pages_build_output_dir = "dist"`（否则 Pages 认为配置无效并跳过）
   - `[[d1_databases]] binding = "DB"`（Functions 通过 `env.DB` 使用 D1）
-  - `[vars] PBKDF2_ITERATIONS = "150000"`（PBKDF2 迭代次数可配，建议 ≥100k）
+  - `[vars] PBKDF2_ITERATIONS = "100000"`（PBKDF2 迭代次数可配；本项目在 Pages/Workers 环境下实测超过 100000 会报 NotSupportedError，因此钳制到 100000）
 - **一键验证远端 D1 是否准备好**：
   - 查看表：
     - `wrangler d1 execute pathofkings --remote --command "SELECT name FROM sqlite_master WHERE type='table';"`
